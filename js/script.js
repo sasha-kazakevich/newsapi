@@ -1,125 +1,128 @@
 "use strict";
 
-let state = (function(){
-	let listeners = [];
-
-	return {
-		date: {},
-		addListeners (listener) {
-			listeners.push(listener);
-		},
-		callAllListeners () {
-			listeners.forEach(el => {el()})
-		}
-	}
-
-})();
-
-let request = (news = 'recode') => {
-	return fetch(`https://newsapi.org/v1/articles?source=${news}&apiKey=87304c4e5f9249b39a881273a2e00452`)
-		.then((responce) => {
-			if (responce.ok) {
-				return responce.json();
-			} else {
-				throw new Error(responce.statusText);
-			}
-		});
+// application state, aka model
+const state = {
+  articles: {},
+  sources: ['recode','ars-technica','techcrunch','buzzfeed','mtv-news','reuters'],
+  currentSource: null
 };
 
-let formatData = (publishedAt) => {
-	let data = new Date(publishedAt);
-	let formatter = new Intl.DateTimeFormat("en-US",{
-		year: "numeric",
-		month: "long",
-		day: "numeric"
-	});
+// in this case also could be called as app
+// manage all parts (data and their representation) of our small application
+const controller = {
+  init() {
+    state.currentSource = state.sources[0];
+    
+    this.fetchArticles()
+      .then(this.setArticles)
+      .catch() // handle error
+      .then(menuView.init.bind(menuView))
+      .then(articlesView.init.bind(articlesView));
+  },
+  
+  fetchArticles() {
+    const apiKey = '87304c4e5f9249b39a881273a2e00452';
+    const { currentSource: source } = state;
+    return fetch(`https://newsapi.org/v1/articles?source=${source}&apiKey=${apiKey}`)
+      .then((responce) => {
+        if (!responce.ok) {
+          throw new Error(responce.statusText)
+        }
+        return responce.json()
+    })
+  },
+  
+  getArticles() {
+    return state.articles
+  },
+  
+  setArticles(articles) {
+    state.articles = articles
+  },
+  
+  setCurrentSource(source) {
+    state.currentSource = source
+  },
+  
+  getCurrentSource() {
+    return state.currentSource
+  },
+  
+  getSources() {
+    return state.sources
+  }
+}
 
-	return formatter.format(data);
-};
+// represent articles (news)
+// works only with controller
+const articlesView = {
+  init() {
+    this.$ul = document.getElementById('news');
+    
+    this.render();
+  },
 
-let template = (post) => {
-	let li = document.createElement('li');
-	let title = document.createElement('h1');
-	let data = document.createElement('p');
-	let author = document.createElement('h2');
-	let image = document.createElement('img');
-	let text = document.createElement('p');
-	let a = document.createElement('a');
+  formatData(publishedAt) {
+    const date = new Date(publishedAt);
+    const formatter = new Intl.DateTimeFormat("en-US",{
+      year: "numeric",
+      month: "long",
+      day: "numeric"
+    });
 
-	title.innerHTML = post.title;
-	author.innerHTML = post.author;
-	data.innerHTML = formatData(post.publishedAt);
-	image.src = post.urlToImage;
-	text.innerHTML = post.description;
-	a.setAttribute('href', post.url);
-	a.innerHTML = "more";
+    return formatter.format(date);
+  },
 
-	li.appendChild(title);
-	li.appendChild(author);
-	li.appendChild(data);
-	li.appendChild(image);
-	li.appendChild(text);
-	li.appendChild(a);
+  template(post) {
+    const li = document.createElement('li');
 
-	return li;
-};
+    li.innerHTML = `
+    <h1>${post.title}</h1>
+    <h2>${post.author}</h2>
+    <p>${this.formatData(post.publishedAt)}</p>
+    <img src=${post.urlToImage}></img>
+    <p>${post.description}</p>
+    <a href=${post.url}>more</a>
+    `
 
-let renderController = () => {
-	let news = document.getElementById('news');
+    return li;
+  },
+  
+  render() {
+    this.$ul.innerHTML = "";
 
-	while(news && news.firstChild) {
-		news.removeChild(news.firstChild)
-	}
+    controller.getArticles().articles
+      .forEach(post => this.$ul.appendChild(this.template(post)));
+  }
+}
 
-	state.date.articles.forEach((el) => {news.appendChild(template(el))});
+// represent menu (list of sources)
+// works only with controller
+const menuView = {
+  init() {
+    this.$ul = document.getElementById('menu');
+    this.$ul.addEventListener('click',this.handleMenuItemClick);
 
-};
+    this.render();
+  },
+  
+  handleMenuItemClick(event){
+    controller.setCurrentSource(event.target.getAttribute('class'));
+    controller.fetchArticles()
+      .then(controller.setArticles)
+      .catch()
+      .then(articlesView.render.bind(articlesView))
+  },
 
-let requestController = (source) => {
-	let news = request(source);
-	news
-	.then(data => {
-		state.date = data;
-		console.log(data);
+  render() {
+    controller.getSources().forEach(el => {
+      const li = document.createElement('li');
+      li.innerHTML = el;
+      li.setAttribute('class', el);
+      this.$ul.appendChild(li);
+    })
+  }
+}
 
-		state.callAllListeners();
-	})
-	.catch(error => errorController(error));
-	
-};
-
-let errorController = (error) => {
-	let app = document.getElementById('app');
-	let p = document.createElement('p');
-	p.innerHTML = error;
-
-	app.appendChild(p);
-
-};
-
-let viewMenu = () => {
-	let menu = document.getElementById('menu');
-	let list = ['recode','ars-technica','techcrunch','buzzfeed','mtv-news','reuters'];
-
-	list.forEach(el => {
-		const li = document.createElement('li');
-		li.setAttribute('data',el);
-		li.innerHTML = el;
-		menu.appendChild(li);
-	});
-
-	menu.addEventListener('click',(el) => {
-		requestController(el.target.getAttribute('data'));
-	});
-};
-
-
-let app = () => {
-	state.addListeners(renderController);
-
-	viewMenu();
-
-	requestController();
-};
-
-app();
+// run our application
+controller.init();
